@@ -1,0 +1,7 @@
+[package]
+name = "test-to-vec"
+version = "0.1.0"
+authors = ["Joe Grund <joe.grund@intel.com>"]
+
+[dependencies]
+nom = "2.0.1"
