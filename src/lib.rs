@@ -78,9 +78,9 @@ named!(
 );
 
 #[derive(Debug, PartialEq)]
-struct Test<'a, 'b> {
-    name: &'a str,
-    status: &'b str
+pub struct Test<'a, 'b> {
+    pub name: &'a str,
+    pub status: &'b str
 }
 
 named!(
@@ -109,7 +109,7 @@ named!(
 );
 
 named!(
-    digits<i64>, 
+    digits<i64>,
     map_res!(
         map_res!(
             ws!(digit),
@@ -120,34 +120,34 @@ named!(
 );
 
 #[derive(Debug, PartialEq)]
-struct SuiteResult<'a> {
-  state: &'a str,
-  passed: i64,
-  failed: i64,
-  ignored: i64,
-  measured: i64
+pub struct SuiteResult<'a> {
+  pub state: &'a str,
+  pub passed: i64,
+  pub failed: i64,
+  pub ignored: i64,
+  pub measured: i64
 }
 
 named!(
     suite_result<SuiteResult>,
     do_parse!(
-        ws!(tag!("test result: ")) >> 
-        state: ok_or_failed >> 
-        char!('.') >> 
-        passed: digits >> 
+        ws!(tag!("test result: ")) >>
+        state: ok_or_failed >>
+        char!('.') >>
+        passed: digits >>
         tag!("passed;") >>
-        failed: digits >> 
+        failed: digits >>
         tag!("failed;") >>
         ignored: digits >>
         tag!("ignored;") >>
         measured: digits >>
         ws!(tag!("measured")) >>
-        (SuiteResult { 
-          state:state, 
-          passed:passed, 
-          failed:failed, 
-          ignored:ignored, 
-          measured:measured 
+        (SuiteResult {
+          state:state,
+          passed:passed,
+          failed:failed,
+          ignored:ignored,
+          measured:measured
         })
     )
 );
@@ -161,24 +161,24 @@ named!(
             str::from_utf8
         ) >>
         ws!(tag!("stdout")) >>
-        ws!(tag!("----")) >>        
+        ws!(tag!("----")) >>
         (name)
     )
 );
 
 #[derive(Debug, PartialEq)]
-struct Failure<'a, 'b> {
-    name:&'a str,
-    error:&'b str
+pub struct Failure<'a, 'b> {
+    pub name:&'a str,
+    pub error:&'b str
 }
 
 named!(
-    failure<Failure>, 
+    failure<Failure>,
     do_parse!(
         name: fail_line >>
         error: rest_of_line >>
         opt!(
-            tag!("note: Run with `RUST_BACKTRACE=1` for a backtrace.") 
+            tag!("note: Run with `RUST_BACKTRACE=1` for a backtrace.")
         ) >>
         line_ending >>
         line_ending >>
@@ -208,14 +208,14 @@ named!(fail_opt<Option<Vec<Failure> > >,
 
 #[derive(Debug, PartialEq)]
 pub struct Suite<'a, 'b, 'c, 'd, 'e, 'f> {
-    name: &'a str,
-    state: &'b str,
-    passed: i64,
-    failed: i64,
-    failures: Option<Vec<Failure<'e, 'f>>>,
-    ignored: i64,
-    measured: i64,
-    tests: Vec<Test<'c, 'd>>
+    pub name: &'a str,
+    pub state: &'b str,
+    pub passed: i64,
+    pub failed: i64,
+    pub failures: Option<Vec<Failure<'e, 'f>>>,
+    pub ignored: i64,
+    pub measured: i64,
+    pub tests: Vec<Test<'c, 'd>>
 }
 
 named!(
@@ -226,7 +226,7 @@ named!(
         tests: test_results >>
         failures: fail_opt >>
         r: suite_result >>
-        (Suite { 
+        (Suite {
             name:name,
             tests: tests,
             state: r.state,
@@ -240,8 +240,8 @@ named!(
 );
 
 named!(
-    suites_parser<Vec<Suite > >, 
-    many1!(suite_parser)    
+    suites_parser<Vec<Suite > >,
+    many1!(suite_parser)
 );
 
 named!(
@@ -278,66 +278,66 @@ mod parser_tests {
       Failure,
       failures
   };
-  
+
   fn assert_done<R:PartialEq + Debug>(l:IResult<&[u8], R>, r:R) -> () {
       assert_eq!(
           l,
           IResult::Done(&b""[..], r)
       );
   }
-  
+
   #[test]
   fn it_should_match_a_compiler_line() {
       let output = &b"   Compiling docker-command v0.1.0 (file:///Users/joegrund/projects/docker-command-rs)
 "[..];
-      
+
       assert_done(
-          compiling_opt(output), 
+          compiling_opt(output),
           Some(())
       );
   }
-  
+
   #[test]
   fn it_should_parse_finish_line() {
       let result = finished(
           &b"    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
 "[..]
       );
-      
+
       assert_done(
           result,
           ()
       );
   }
-  
+
   #[test]
   fn it_should_parse_suite_line() {
       let result = suite_line(
           &b"Running target/debug/deps/docker_command-be014e20fbd07382
 "[..]
       );
-      
+
       assert_done(
-          result, 
+          result,
           "target/debug/deps/docker_command-be014e20fbd07382"
       );
   }
-  
+
   #[test]
   fn it_should_parse_suite_count() {
       let result = suite_count(
           &b"running 0 tests
 "[..]
       );
-      
+
       assert_done(result, ());
   }
-  
+
   #[test]
   fn it_should_match_ok() {
       assert_done(
         ok_or_failed(&b"ok"[..]),
-        "pass"  
+        "pass"
       );
   }
 
@@ -348,13 +348,13 @@ mod parser_tests {
         "fail"
       );
   }
-  
+
   #[test]
   fn it_should_parse_test_result() {
       let result = test_result(
           &b"test it_runs_a_command ... ok"[..]
       );
-      
+
       assert_done(
           result,
           Test {
@@ -363,7 +363,7 @@ mod parser_tests {
           }
       );
   }
-  
+
   #[test]
   fn it_should_parse_test_results() {
       let result = test_results(
@@ -373,10 +373,10 @@ test tests::it_should_parse_test_output ... ok
 test tests::it_should_parse_suite_line ... FAILED
 "[..]
 );
-      
+
       assert_done(
           result,
-          
+
               vec![
                 Test {
                     name: "tests::it_should_parse_first_line",
@@ -397,7 +397,7 @@ test tests::it_should_parse_suite_line ... FAILED
               ]
       );
   }
-  
+
     #[test]
     fn it_should_capture_digits() {
         assert_done(
@@ -405,7 +405,7 @@ test tests::it_should_parse_suite_line ... FAILED
             10
         );
     }
-    
+
     #[test]
     fn it_should_parse_a_suite_result() {
       let result = suite_result(&b"test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured"[..]);
@@ -421,7 +421,7 @@ test tests::it_should_parse_suite_line ... FAILED
         }
       );
     }
-    
+
     #[test]
     fn it_should_parse_successful_test_output() {
         let output = &b"    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
@@ -436,7 +436,7 @@ test tests::it_should_parse_first_line ... ok
   "[..];
 
       let result = cargo_test_result_parser(output);
-      
+
       assert_done(
         result,
         vec![Suite {
@@ -460,17 +460,17 @@ test tests::it_should_parse_first_line ... ok
         }]
       );
     }
-    
+
     #[test]
     fn test_fail_line() {
         let output = b"---- fail stdout ----";
-        
+
         assert_done(
             fail_line(output),
             "fail"
         );
     }
-    
+
     #[test]
     fn test_failure() {
         let output = b"---- fail stdout ----
@@ -486,9 +486,9 @@ note: Run with `RUST_BACKTRACE=1` for a backtrace.
             }
         );
     }
-    
+
     #[test]
-    fn test_failures() {        
+    fn test_failures() {
         let output = b"---- fail stdout ----
           thread 'fail' panicked at 'assertion failed: `(left == right)` (left: `1`, right: `2`)', tests/integration_test.rs:16
 note: Run with `RUST_BACKTRACE=1` for a backtrace.
@@ -513,7 +513,7 @@ note: Run with `RUST_BACKTRACE=1` for a backtrace.
             ]
         );
     }
-    
+
     #[test]
     fn test_fail_run() {
         let output = b"  Compiling blah v0.1.0 (file:blah)
@@ -553,54 +553,54 @@ error: test failed";
             IResult::Done(_, x) => x,
             _ => panic!("BOOM!")
         };
-        
+
 
         assert_eq!(
             x,
             vec![
-                Suite { 
-                    name: "target/debug/deps/docker_command-be014e20fbd07382", 
-                    state: "pass", 
-                    passed: 0, 
-                    failed: 0, 
-                    failures: None, 
-                    ignored: 0, 
-                    measured: 0, 
-                    tests: vec![] 
-                }, 
-                Suite { 
-                    name: "target/debug/integration_test-d4fc68dd5824cbb9", 
-                    state: "fail", 
-                    passed: 1, 
-                    failed: 2, 
+                Suite {
+                    name: "target/debug/deps/docker_command-be014e20fbd07382",
+                    state: "pass",
+                    passed: 0,
+                    failed: 0,
+                    failures: None,
+                    ignored: 0,
+                    measured: 0,
+                    tests: vec![]
+                },
+                Suite {
+                    name: "target/debug/integration_test-d4fc68dd5824cbb9",
+                    state: "fail",
+                    passed: 1,
+                    failed: 2,
                     failures: Some(
                         vec![
-                            Failure { 
-                                name: "fail", 
-                                error: "thread \'fail\' panicked at \'assertion failed: `(left == right)` (left: `1`, right: `2`)\', tests/integration_test.rs:16" 
-                            }, 
-                            Failure { 
-                                name: "fail2", 
-                                error: "thread \'fail2\' panicked at \'assertion failed: `(left == right)` (left: `3`, right: `2`)\', tests/integration_test.rs:22" 
+                            Failure {
+                                name: "fail",
+                                error: "thread \'fail\' panicked at \'assertion failed: `(left == right)` (left: `1`, right: `2`)\', tests/integration_test.rs:16"
+                            },
+                            Failure {
+                                name: "fail2",
+                                error: "thread \'fail2\' panicked at \'assertion failed: `(left == right)` (left: `3`, right: `2`)\', tests/integration_test.rs:22"
                             }
                         ]
-                    ), 
-                    ignored: 0, 
-                    measured: 0, 
+                    ),
+                    ignored: 0,
+                    measured: 0,
                     tests: vec![
-                        Test { 
-                            name: "fail", 
-                            status: "fail" 
+                        Test {
+                            name: "fail",
+                            status: "fail"
                         },
                         Test {
-                            name: "fail2", 
+                            name: "fail2",
                             status: "fail"
-                        }, 
-                        Test { 
-                            name: "it_runs_a_command", 
-                            status: "pass" 
+                        },
+                        Test {
+                            name: "it_runs_a_command",
+                            status: "pass"
                         }
-                    ] 
+                    ]
                 }
             ]
         );
