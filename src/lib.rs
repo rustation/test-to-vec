@@ -125,6 +125,7 @@ pub struct SuiteResult<'a> {
   pub passed: i64,
   pub failed: i64,
   pub ignored: i64,
+  pub total: i64,
   pub measured: i64
 }
 
@@ -147,6 +148,7 @@ named!(
           passed:passed,
           failed:failed,
           ignored:ignored,
+          total: passed + failed + ignored,
           measured:measured
         })
     )
@@ -417,6 +419,7 @@ test tests::it_should_parse_suite_line ... FAILED
             passed: 3,
             failed: 1,
             ignored: 0,
+            total: 4,
             measured: 0,
         }
       );
