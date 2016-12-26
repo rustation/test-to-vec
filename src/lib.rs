@@ -78,9 +78,10 @@ named!(
 );
 
 #[derive(Debug, PartialEq)]
-pub struct Test<'a, 'b> {
+pub struct Test<'a, 'b, 'c> {
     pub name: &'a str,
-    pub status: &'b str
+    pub status: &'b str,
+    pub error:Option<&'c str>
 }
 
 named!(
@@ -96,7 +97,8 @@ named!(
         status: ws!(ok_or_failed) >>
         (Test {
             name: name,
-            status: status
+            status: status,
+            error: None
         })
     )
 );
@@ -209,15 +211,56 @@ named!(fail_opt<Option<Vec<Failure> > >,
 );
 
 #[derive(Debug, PartialEq)]
-pub struct Suite<'a, 'b, 'c, 'd, 'e, 'f> {
+pub struct Suite<'a, 'b, 'c, 'd, 'e> {
     pub name: &'a str,
     pub state: &'b str,
     pub passed: i64,
     pub failed: i64,
-    pub failures: Option<Vec<Failure<'e, 'f>>>,
     pub ignored: i64,
     pub measured: i64,
-    pub tests: Vec<Test<'c, 'd>>
+    pub total: i64,
+    pub tests: Vec<Test<'c, 'd, 'e>>
+}
+
+fn find_message_by_name <'a, 'b> (name:&str, failures:&Vec<Failure<'a, 'b>>) -> Option<&'b str> {
+  failures
+    .iter()
+    .find(|x| x.name == name)
+    .map(|x| x.error)
+}
+
+fn handle_parsed_suite <'a, 'b, 'c, 'd, 'e> (
+  name:&'a str,
+  tests:Vec<Test<'c, 'd, 'e>>,
+  failures:Option<Vec<Failure<'e, 'e>>>,
+  result:SuiteResult<'b>
+) -> Suite<'a, 'b, 'c, 'd, 'e> {
+  let tests_with_failures = match failures {
+    Some(xs) => {
+      tests
+      .iter()
+      .map(|t|
+        Test{
+          error: find_message_by_name(t.name, &xs),
+          name: t.name,
+          status: t.status
+        }
+      )
+      .collect()
+    },
+    None => tests
+  };
+
+  Suite {
+      name: name,
+      tests: tests_with_failures,
+      state: result.state,
+      total: result.total,
+      passed: result.passed,
+      failed: result.failed,
+      ignored: result.ignored,
+      measured: result.measured
+  }
 }
 
 named!(
@@ -227,17 +270,8 @@ named!(
         suite_count >>
         tests: test_results >>
         failures: fail_opt >>
-        r: suite_result >>
-        (Suite {
-            name:name,
-            tests: tests,
-            state: r.state,
-            passed: r.passed,
-            failed: r.failed,
-            failures: failures,
-            ignored: r.ignored,
-            measured: r.measured
-        })
+        result: suite_result >>
+        (handle_parsed_suite(name, tests, failures, result))
     )
 );
 
@@ -281,11 +315,11 @@ mod parser_tests {
       failures
   };
 
-  fn assert_done<R:PartialEq + Debug>(l:IResult<&[u8], R>, r:R) -> () {
+  fn assert_done<R:PartialEq + Debug>(l:IResult<&[u8], R>, r:R) {
       assert_eq!(
           l,
           IResult::Done(&b""[..], r)
-      );
+      )
   }
 
   #[test]
@@ -361,7 +395,8 @@ mod parser_tests {
           result,
           Test {
               name: "it_runs_a_command",
-              status: "pass"
+              status: "pass",
+              error: None
           }
       );
   }
@@ -383,18 +418,22 @@ test tests::it_should_parse_suite_line ... FAILED
                 Test {
                     name: "tests::it_should_parse_first_line",
                     status: "pass",
+                    error: None
                 },
                 Test {
                     name: "tests::it_should_parse_a_status_line",
                     status: "pass",
+                    error: None
                 },
                 Test {
                     name: "tests::it_should_parse_test_output",
-                    status: "pass"
+                    status: "pass",
+                    error: None
                 },
                 Test {
                     name: "tests::it_should_parse_suite_line",
-                    status: "fail"
+                    status: "fail",
+                    error: None
                 }
               ]
       );
@@ -448,18 +487,20 @@ test tests::it_should_parse_first_line ... ok
             tests: vec![
                 Test {
                     name: "tests::it_should_match_failed",
-                    status: "pass"
+                    status: "pass",
+                    error: None
                 },
                 Test {
                     name: "tests::it_should_parse_first_line",
-                    status: "pass"
+                    status: "pass",
+                    error: None
                 }
             ],
-            failures: None,
             passed: 2,
             failed: 0,
             ignored: 0,
             measured: 0,
+            total: 2
         }]
       );
     }
@@ -557,6 +598,7 @@ error: test failed";
             _ => panic!("BOOM!")
         };
 
+        println!("{:#?}", x);
 
         assert_eq!(
             x,
@@ -566,9 +608,9 @@ error: test failed";
                     state: "pass",
                     passed: 0,
                     failed: 0,
-                    failures: None,
                     ignored: 0,
                     measured: 0,
+                    total: 0,
                     tests: vec![]
                 },
                 Suite {
@@ -576,32 +618,24 @@ error: test failed";
                     state: "fail",
                     passed: 1,
                     failed: 2,
-                    failures: Some(
-                        vec![
-                            Failure {
-                                name: "fail",
-                                error: "thread \'fail\' panicked at \'assertion failed: `(left == right)` (left: `1`, right: `2`)\', tests/integration_test.rs:16"
-                            },
-                            Failure {
-                                name: "fail2",
-                                error: "thread \'fail2\' panicked at \'assertion failed: `(left == right)` (left: `3`, right: `2`)\', tests/integration_test.rs:22"
-                            }
-                        ]
-                    ),
                     ignored: 0,
                     measured: 0,
+                    total: 3,
                     tests: vec![
                         Test {
                             name: "fail",
-                            status: "fail"
+                            status: "fail",
+                            error: Some("thread \'fail\' panicked at \'assertion failed: `(left == right)` (left: `1`, right: `2`)\', tests/integration_test.rs:16")
                         },
                         Test {
                             name: "fail2",
-                            status: "fail"
+                            status: "fail",
+                            error: Some("thread \'fail2\' panicked at \'assertion failed: `(left == right)` (left: `3`, right: `2`)\', tests/integration_test.rs:22")
                         },
                         Test {
                             name: "it_runs_a_command",
-                            status: "pass"
+                            status: "pass",
+                            error: None
                         }
                     ]
                 }
