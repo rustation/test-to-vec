@@ -28,6 +28,28 @@ named!(
 );
 
 named!(
+    downloading<Vec<()>>,
+    many0!(
+        do_parse!(
+            ws!(tag!("Downloading")) >>
+            rest_of_line >>
+            ()
+        )
+    )
+);
+
+named!(
+    updating<Option<()>>,
+    opt!(
+      do_parse!(
+        ws!(tag!("Updating")) >>
+        rest_of_line >>
+        ()
+      )
+    )
+);
+
+named!(
     finished<()>,
     do_parse!(
         ws!(tag!("Finished")) >>
@@ -140,7 +162,9 @@ named!(
         ignored: digits >>
         tag!("ignored;") >>
         measured: digits >>
-        ws!(tag!("measured")) >>
+        tag!("measured;") >>
+        digits >>
+        ws!(tag!("filtered out")) >>
         (SuiteResult {
           state:state,
           passed:passed,
@@ -219,19 +243,19 @@ pub struct Suite<'a, 'b, 'c, 'd, 'e> {
 }
 
 fn find_message_by_name<'a, 'b>(name: &str, failures: &Vec<Failure<'a, 'b>>) -> Option<&'b str> {
-    failures.iter()
-        .find(|x| x.name == name)
-        .map(|x| x.error)
+    failures.iter().find(|x| x.name == name).map(|x| x.error)
 }
 
-fn handle_parsed_suite<'a, 'b, 'c, 'd, 'e>(name: &'a str,
-                                           tests: Vec<Test<'c, 'd, 'e>>,
-                                           failures: Option<Vec<Failure<'e, 'e>>>,
-                                           result: SuiteResult<'b>)
-                                           -> Suite<'a, 'b, 'c, 'd, 'e> {
+fn handle_parsed_suite<'a, 'b, 'c, 'd, 'e>(
+    name: &'a str,
+    tests: Vec<Test<'c, 'd, 'e>>,
+    failures: Option<Vec<Failure<'e, 'e>>>,
+    result: SuiteResult<'b>,
+) -> Suite<'a, 'b, 'c, 'd, 'e> {
     let tests_with_failures = match failures {
         Some(xs) => {
-            tests.iter()
+            tests
+                .iter()
                 .map(|t| {
                     Test {
                         error: find_message_by_name(t.name, &xs),
@@ -276,6 +300,8 @@ named!(
 named!(
     pub cargo_test_result_parser<Vec<Suite > >,
     do_parse!(
+        updating >>
+        downloading >>
         compiling >>
         finished >>
         suites: suites_parser >>
@@ -288,9 +314,9 @@ named!(
 mod parser_tests {
     use nom::IResult;
     use std::fmt::Debug;
-    use super::{compiling, finished, suite_line, suite_count, ok_or_failed, Test, test_result,
-                test_results, digits, suite_result, SuiteResult, cargo_test_result_parser, Suite,
-                fail_line, failure, Failure, failures};
+    use super::{downloading, compiling, finished, suite_line, suite_count, ok_or_failed, Test,
+                test_result, test_results, digits, suite_result, SuiteResult,
+                cargo_test_result_parser, Suite, fail_line, failure, Failure, failures};
 
     fn assert_done<R: PartialEq + Debug>(l: IResult<&[u8], R>, r: R) {
         assert_eq!(
@@ -300,33 +326,48 @@ mod parser_tests {
     }
 
     #[test]
+    fn it_should_parse_a_downloading_line() {
+        let output = &b" Downloading nvpair-sys v0.1.0
+"[..];
+
+        assert_done(downloading(output), vec![()])
+    }
+
+    #[test]
     fn it_should_match_a_compiler_line() {
         let output = &b"   Compiling docker-command v0.1.0 (file:///Users/joegrund/projects/docker-command-rs)
-"[..];
+"
+            [..];
 
         assert_done(compiling(output), vec![()]);
     }
 
     #[test]
     fn it_should_parse_finish_line() {
-        let result = finished(&b"    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
-"[..]);
+        let result = finished(
+            &b"    Finished debug [unoptimized + debuginfo] target(s) in 0.0 secs
+"[..],
+        );
 
         assert_done(result, ());
     }
 
     #[test]
     fn it_should_parse_suite_line() {
-        let result = suite_line(&b"Running target/debug/deps/docker_command-be014e20fbd07382
-"[..]);
+        let result = suite_line(
+            &b"Running target/debug/deps/docker_command-be014e20fbd07382
+"[..],
+        );
 
         assert_done(result, "target/debug/deps/docker_command-be014e20fbd07382");
     }
 
     #[test]
     fn it_should_parse_suite_count() {
-        let result = suite_count(&b"running 0 tests
-"[..]);
+        let result = suite_count(
+            &b"running 0 tests
+"[..],
+        );
 
         assert_done(result, ());
     }
@@ -345,25 +386,31 @@ mod parser_tests {
     fn it_should_parse_test_result() {
         let result = test_result(&b"test it_runs_a_command ... ok"[..]);
 
-        assert_done(result,
-                    Test {
-                        name: "it_runs_a_command",
-                        status: "pass",
-                        error: None,
-                    });
+        assert_done(
+            result,
+            Test {
+                name: "it_runs_a_command",
+                status: "pass",
+                error: None,
+            },
+        );
     }
 
     #[test]
     fn it_should_parse_test_results() {
-        let result = test_results(&b"test tests::it_should_parse_first_line ... ok
+        let result = test_results(
+            &b"test tests::it_should_parse_first_line ... ok
 test tests::it_should_parse_a_status_line ... ok
 test tests::it_should_parse_test_output ... ok
 test tests::it_should_parse_suite_line ... FAILED
-"[..]);
+"
+                [..],
+        );
 
-        assert_done(result,
+        assert_done(
+            result,
 
-                    vec![
+            vec![
                 Test {
                     name: "tests::it_should_parse_first_line",
                     status: "pass",
@@ -384,7 +431,8 @@ test tests::it_should_parse_suite_line ... FAILED
                     status: "fail",
                     error: None
                 }
-              ]);
+              ],
+        );
     }
 
     #[test]
@@ -394,18 +442,21 @@ test tests::it_should_parse_suite_line ... FAILED
 
     #[test]
     fn it_should_parse_a_suite_result() {
-        let result =
-            suite_result(&b"test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured"[..]);
+        let result = suite_result(
+            &b"test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out"[..],
+        );
 
-        assert_done(result,
-                    SuiteResult {
-                        state: "fail",
-                        passed: 3,
-                        failed: 1,
-                        ignored: 0,
-                        total: 4,
-                        measured: 0,
-                    });
+        assert_done(
+            result,
+            SuiteResult {
+                state: "fail",
+                passed: 3,
+                failed: 1,
+                ignored: 0,
+                total: 4,
+                measured: 0,
+            },
+        );
     }
 
     #[test]
@@ -418,13 +469,15 @@ test tests::it_should_match_failed ... ok
 test tests::it_should_parse_first_line ... ok
 
 
-  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured
-  "[..];
+  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+  "
+            [..];
 
         let result = cargo_test_result_parser(output);
 
-        assert_done(result,
-                    vec![Suite {
+        assert_done(
+            result,
+            vec![Suite {
             name: "target/debug/cargo_test_junit-83252957c74e106d",
             state: "pass",
             tests: vec![
@@ -444,7 +497,8 @@ test tests::it_should_parse_first_line ... ok
             ignored: 0,
             measured: 0,
             total: 2
-        }]);
+        }],
+        );
     }
 
     #[test]
@@ -461,12 +515,14 @@ test tests::it_should_parse_first_line ... ok
 note: Run with `RUST_BACKTRACE=1` for a backtrace.
 
 ";
-        assert_done(failure(output),
-                    Failure {
-                        name: "fail",
-                        error: "thread 'fail' panicked at 'assertion failed: `(left == right)` \
+        assert_done(
+            failure(output),
+            Failure {
+                name: "fail",
+                error: "thread 'fail' panicked at 'assertion failed: `(left == right)` \
                                 (left: `1`, right: `2`)', tests/integration_test.rs:16",
-                    });
+            },
+        );
     }
 
     #[test]
@@ -492,7 +548,7 @@ note: Run with `RUST_BACKTRACE=1` for a backtrace.
                     name: "fail2",
                     error: "thread 'fail2' panicked at 'assertion failed: `(left == right)` (left: `3`, right: `2`)', tests/integration_test.rs:22"
                 }
-            ]
+            ],
         );
     }
 
@@ -504,7 +560,7 @@ note: Run with `RUST_BACKTRACE=1` for a backtrace.
 
 running 0 tests
 
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
         Running target/debug/integration_test-d4fc68dd5824cbb9
 
@@ -527,7 +583,7 @@ failures:
         fail
         fail2
 
-test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out
 
 error: test failed";
 
@@ -590,23 +646,24 @@ error: test failed";
 
 running 0 tests
 
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
      Running target/debug/integration_test-283604d1063344ba
 
 running 1 test
 test it_runs_a_command ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
    Doc-tests foo
 
 running 0 tests
 
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured";
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out";
 
-        assert_done(cargo_test_result_parser(output),
-                    vec![
+        assert_done(
+            cargo_test_result_parser(output),
+            vec![
                       Suite {
                           name: "target/debug/deps/foo-5a7be5d1b9c8e0f6",
                           state: "pass",
@@ -643,6 +700,156 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured";
                           total: 0,
                           tests: vec![]
                       }
-                  ]);
+                  ],
+        );
+    }
+
+    #[test]
+    fn test_full_run() {
+        let output = b"    Updating registry `https://github.com/rust-lang/crates.io-index`
+ Downloading nvpair-sys v0.1.0
+ Downloading bindgen v0.30.0
+ Downloading pkg-config v0.3.9
+ Downloading clap v2.27.1
+ Downloading which v1.0.3
+ Downloading cfg-if v0.1.2
+ Downloading lazy_static v0.2.10
+ Downloading clang-sys v0.19.0
+ Downloading log v0.3.8
+ Downloading env_logger v0.4.3
+ Downloading regex v0.2.2
+ Downloading syntex_syntax v0.58.1
+ Downloading aster v0.41.0
+ Downloading quasi v0.32.0
+ Downloading cexpr v0.2.2
+ Downloading peeking_take_while v0.1.2
+ Downloading textwrap v0.9.0
+ Downloading unicode-width v0.1.4
+ Downloading vec_map v0.8.0
+ Downloading strsim v0.6.0
+ Downloading atty v0.2.3
+ Downloading bitflags v0.9.1
+ Downloading ansi_term v0.9.0
+ Downloading libc v0.2.33
+ Downloading libloading v0.4.2
+ Downloading glob v0.2.11
+ Downloading aho-corasick v0.6.3
+ Downloading utf8-ranges v1.0.0
+ Downloading thread_local v0.3.4
+ Downloading memchr v1.0.2
+ Downloading regex-syntax v0.4.1
+ Downloading unreachable v1.0.0
+ Downloading void v1.0.2
+ Downloading bitflags v0.8.2
+ Downloading syntex_pos v0.58.1
+ Downloading rustc-serialize v0.3.24
+ Downloading unicode-xid v0.0.4
+ Downloading syntex_errors v0.58.1
+ Downloading term v0.4.6
+ Downloading nom v3.2.1
+ Downloading quasi_codegen v0.32.0
+ Downloading syntex v0.58.1
+   Compiling bitflags v0.9.1
+   Compiling unicode-xid v0.0.4
+   Compiling libc v0.2.33
+   Compiling void v1.0.2
+   Compiling ansi_term v0.9.0
+   Compiling libloading v0.4.2
+   Compiling utf8-ranges v1.0.0
+   Compiling log v0.3.8
+   Compiling lazy_static v0.2.10
+   Compiling term v0.4.6
+   Compiling unicode-width v0.1.4
+   Compiling nvpair-sys v0.1.0
+   Compiling pkg-config v0.3.9
+   Compiling glob v0.2.11
+   Compiling cfg-if v0.1.2
+   Compiling regex-syntax v0.4.1
+   Compiling peeking_take_while v0.1.2
+   Compiling bitflags v0.8.2
+   Compiling vec_map v0.8.0
+   Compiling strsim v0.6.0
+   Compiling rustc-serialize v0.3.24
+   Compiling which v1.0.3
+   Compiling atty v0.2.3
+   Compiling memchr v1.0.2
+   Compiling unreachable v1.0.0
+   Compiling textwrap v0.9.0
+   Compiling clang-sys v0.19.0
+   Compiling syntex_pos v0.58.1
+   Compiling nom v3.2.1
+   Compiling aho-corasick v0.6.3
+   Compiling thread_local v0.3.4
+   Compiling clap v2.27.1
+   Compiling syntex_errors v0.58.1
+   Compiling cexpr v0.2.2
+   Compiling regex v0.2.2
+   Compiling syntex_syntax v0.58.1
+   Compiling env_logger v0.4.3
+   Compiling quasi v0.32.0
+   Compiling syntex v0.58.1
+   Compiling aster v0.41.0
+   Compiling quasi_codegen v0.32.0
+   Compiling bindgen v0.30.0
+   Compiling libzfs-sys v0.1.0 (file:///vagrant/libzfs-sys)
+    Finished dev [unoptimized + debuginfo] target(s) in 862.1 secs
+     Running target/debug/deps/libzfs_sys-a797c24cd4b4a7ea
+
+running 3 tests
+test bindgen_test_layout_zpool_handle ... ok
+test tests::open_close_handle ... ok
+test tests::pool_search_import_list_export ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+   Doc-tests libzfs-sys
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+
+    ";
+
+        assert_done(
+            cargo_test_result_parser(output),
+            vec![
+                          Suite {
+                              name: "target/debug/deps/libzfs_sys-a797c24cd4b4a7ea",
+                              state: "pass",
+                              passed: 3,
+                              failed: 0,
+                              ignored: 0,
+                              measured: 0,
+                              total: 3,
+                              tests: vec![
+                                Test {
+                                  name: "bindgen_test_layout_zpool_handle",
+                                  status: "pass",
+                                  error: None
+                                },
+                                Test {
+                                  name: "tests::open_close_handle",
+                                  status: "pass",
+                                  error: None
+                                },
+                                Test {
+                                  name: "tests::pool_search_import_list_export",
+                                  status: "pass",
+                                  error: None
+                                }
+                              ]
+                          },
+                          Suite {
+                              name: "libzfs-sys",
+                              state: "pass",
+                              passed: 0,
+                              failed: 0,
+                              ignored: 0,
+                              measured: 0,
+                              total: 0,
+                              tests: vec![]
+                          }
+                      ],
+        );
     }
 }
