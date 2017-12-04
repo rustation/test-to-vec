@@ -8,4 +8,4 @@ repository = "https://github.com/rustation/test-to-vec"
 description = "Converts cargo test output into a vec of suites"
 
 [dependencies]
-nom = "2.0.1"
+nom = "3.2.1"

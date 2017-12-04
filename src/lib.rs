@@ -17,36 +17,39 @@ named!(
 );
 
 named!(
-    compiling<Vec<()> >,
-    many0!(
-        do_parse!(
-            ws!(tag!("Compiling")) >>
-            rest_of_line >>
-            ()
-        )
+    compiling<()>,
+    do_parse!(
+      ws!(tag!("Compiling")) >>
+      rest_of_line >>
+      ()
     )
 );
 
 named!(
-    downloading<Vec<()>>,
-    many0!(
-        do_parse!(
-            ws!(tag!("Downloading")) >>
-            rest_of_line >>
-            ()
-        )
+    downloading<()>,
+    do_parse!(
+      ws!(tag!("Downloading")) >>
+      rest_of_line >>
+      ()
     )
 );
 
 named!(
-    updating<Option<()>>,
-    opt!(
+  installing<()>,
+    do_parse!(
+      ws!(tag!("Installing")) >>
+      rest_of_line >>
+      ()
+    )
+);
+
+named!(
+    updating<()>,
       do_parse!(
         ws!(tag!("Updating")) >>
         rest_of_line >>
         ()
       )
-    )
 );
 
 named!(
@@ -298,13 +301,47 @@ named!(
 );
 
 named!(
+  compile_error<Vec<Suite > >,
+  do_parse!(
+    ws!(tag!("error")) >>
+    opt_res!(
+      do_parse!(
+        char!('[') >>
+        take_until_and_consume!("]") >>
+        ()
+      )
+    ) >>
+    ws!(char!(':')) >>
+    error: map_res!(
+            take_till!(|c| c == 0x0),
+            str::from_utf8
+        ) >>
+    (vec![Suite {
+        name: "unknown",
+        state: "fail",
+        total: 1,
+        passed: 0,
+        failed: 1,
+        ignored: 0,
+        measured: 0,
+        tests: vec![
+          Test {
+            name: "compile failed",
+            status: "fail",
+            error: Some(error.into())
+          }
+        ]
+    }])
+  )
+);
+
+named!(
     pub cargo_test_result_parser<Vec<Suite > >,
     do_parse!(
-        updating >>
-        downloading >>
-        compiling >>
-        finished >>
-        suites: suites_parser >>
+        many0!(
+          alt!(updating | downloading | installing | compiling | finished)
+        ) >>
+        suites: alt!(suites_parser | compile_error) >>
         (suites)
     )
 );
@@ -314,8 +351,8 @@ named!(
 mod parser_tests {
     use nom::IResult;
     use std::fmt::Debug;
-    use super::{downloading, compiling, finished, suite_line, suite_count, ok_or_failed, Test,
-                test_result, test_results, digits, suite_result, SuiteResult,
+    use super::{downloading, compiling, installing, finished, suite_line, suite_count,
+                ok_or_failed, Test, test_result, test_results, digits, suite_result, SuiteResult,
                 cargo_test_result_parser, Suite, fail_line, failure, Failure, failures};
 
     fn assert_done<R: PartialEq + Debug>(l: IResult<&[u8], R>, r: R) {
@@ -330,7 +367,15 @@ mod parser_tests {
         let output = &b" Downloading nvpair-sys v0.1.0
 "[..];
 
-        assert_done(downloading(output), vec![()])
+        assert_done(downloading(output), ())
+    }
+
+    #[test]
+    fn it_should_parse_an_installing_line() {
+        let output = &b" Installing cargo-test-junit v0.6.2
+"[..];
+
+        assert_done(installing(output), ())
     }
 
     #[test]
@@ -339,7 +384,7 @@ mod parser_tests {
 "
             [..];
 
-        assert_done(compiling(output), vec![()]);
+        assert_done(compiling(output), ());
     }
 
     #[test]
@@ -849,6 +894,184 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
                               total: 0,
                               tests: vec![]
                           }
+                      ],
+        );
+
+    }
+
+    #[test]
+    pub fn compile_fail() {
+        let output = b"    Updating registry `https://github.com/rust-lang/crates.io-index`
+ Downloading cargo-test-junit v0.6.2
+  Installing cargo-test-junit v0.6.2
+ Downloading test-to-vec v0.4.2
+ Downloading nom v2.2.1
+ Downloading clap v2.28.0
+ Downloading sxd-document v0.2.4
+ Downloading duct v0.4.0
+ Downloading textwrap v0.9.0
+ Downloading bitflags v1.0.1
+ Downloading vec_map v0.8.0
+ Downloading unicode-width v0.1.4
+ Downloading strsim v0.6.0
+ Downloading atty v0.2.3
+ Downloading ansi_term v0.10.2
+ Downloading peresil v0.3.0
+ Downloading typed-arena v1.3.0
+ Downloading libc v0.2.34
+ Downloading crossbeam v0.3.0
+   Compiling nom v2.2.1
+   Compiling libc v0.2.34
+   Compiling crossbeam v0.3.0
+   Compiling unicode-width v0.1.4
+   Compiling strsim v0.6.0
+   Compiling bitflags v1.0.1
+   Compiling vec_map v0.8.0
+   Compiling peresil v0.3.0
+   Compiling typed-arena v1.3.0
+   Compiling ansi_term v0.10.2
+   Compiling test-to-vec v0.4.2
+   Compiling atty v0.2.3
+   Compiling duct v0.4.0
+   Compiling textwrap v0.9.0
+   Compiling sxd-document v0.2.4
+   Compiling clap v2.28.0
+   Compiling cargo-test-junit v0.6.2
+    Finished release [optimized] target(s) in 114.51 secs
+  Installing /root/.cargo/bin/cargo-test-junit
+    Updating git repository `https://github.com/jgrund/rust-libzfs.git`
+ Downloading pkg-config v0.3.9
+ Downloading bindgen v0.30.0
+ Downloading env_logger v0.4.3
+ Downloading peeking_take_while v0.1.2
+ Downloading quasi v0.32.0
+ Downloading cfg-if v0.1.2
+ Downloading clap v2.27.1
+ Downloading aster v0.41.0
+ Downloading syntex_syntax v0.58.1
+ Downloading regex v0.2.2
+ Downloading lazy_static v0.2.11
+ Downloading which v1.0.3
+ Downloading clang-sys v0.19.0
+ Downloading cexpr v0.2.2
+ Downloading log v0.3.8
+ Downloading memchr v1.0.2
+ Downloading utf8-ranges v1.0.0
+ Downloading thread_local v0.3.4
+ Downloading aho-corasick v0.6.3
+ Downloading regex-syntax v0.4.1
+ Downloading libc v0.2.33
+ Downloading unreachable v1.0.0
+ Downloading void v1.0.2
+ Downloading syntex_errors v0.58.1
+ Downloading rustc-serialize v0.3.24
+ Downloading bitflags v0.8.2
+ Downloading syntex_pos v0.58.1
+ Downloading unicode-xid v0.0.4
+ Downloading term v0.4.6
+ Downloading ansi_term v0.9.0
+ Downloading bitflags v0.9.1
+ Downloading libloading v0.4.2
+ Downloading glob v0.2.11
+ Downloading nom v3.2.1
+ Downloading quasi_codegen v0.32.0
+ Downloading syntex v0.58.1
+ Downloading cstr-argument v0.0.2
+   Compiling strsim v0.6.0
+   Compiling unicode-xid v0.0.4
+   Compiling glob v0.2.11
+   Compiling log v0.3.8
+   Compiling nvpair-sys v0.1.0 (https://github.com/jgrund/rust-libzfs.git?rev=get-values#470f3014)
+   Compiling rustc-serialize v0.3.24
+   Compiling vec_map v0.8.0
+   Compiling cfg-if v0.1.2
+   Compiling unicode-width v0.1.4
+   Compiling libloading v0.4.2
+   Compiling pkg-config v0.3.9
+   Compiling lazy_static v0.2.11
+   Compiling ansi_term v0.9.0
+   Compiling peeking_take_while v0.1.2
+   Compiling libc v0.2.33
+   Compiling utf8-ranges v1.0.0
+   Compiling term v0.4.6
+   Compiling bitflags v0.8.2
+   Compiling bitflags v0.9.1
+   Compiling regex-syntax v0.4.1
+   Compiling void v1.0.2
+   Compiling clang-sys v0.19.0
+   Compiling syntex_pos v0.58.1
+   Compiling textwrap v0.9.0
+   Compiling memchr v1.0.2
+   Compiling atty v0.2.3
+   Compiling which v1.0.3
+   Compiling unreachable v1.0.0
+   Compiling syntex_errors v0.58.1
+   Compiling nom v3.2.1
+   Compiling cstr-argument v0.0.2
+   Compiling aho-corasick v0.6.3
+   Compiling clap v2.27.1
+   Compiling thread_local v0.3.4
+   Compiling syntex_syntax v0.58.1
+   Compiling cexpr v0.2.2
+   Compiling nvpair v0.2.0 (https://github.com/jgrund/rust-libzfs.git?rev=get-values#470f3014)
+   Compiling regex v0.2.2
+   Compiling aster v0.41.0
+   Compiling syntex v0.58.1
+   Compiling quasi v0.32.0
+   Compiling env_logger v0.4.3
+   Compiling quasi_codegen v0.32.0
+   Compiling bindgen v0.30.0
+   Compiling libzfs-sys v0.1.0 (file:///vagrant/libzfs-sys)
+   Compiling libzfs v0.1.0 (file:///vagrant/libzfs)
+error[E0369]: binary operation `==` cannot be applied to type `std::result::Result<nvpair::NvData, std::io::Error>`
+   --> libzfs/src/lib.rs:134:9
+    |
+134 |         assert_eq!(state, Ok(nvpair::NvData::Uint64(sys::pool_state::POOL_STATE_EXPORTED as u64)));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: an implementation of `std::cmp::PartialEq` might be missing for `std::result::Result<nvpair::NvData, std::io::Error>`
+    = note: this error originates in a macro outside of the current crate
+
+error: aborting due to previous error
+
+error: Could not compile `libzfs`.
+
+To learn more, run the command again with --verbose.
+";
+
+        assert_done(
+            cargo_test_result_parser(output),
+            vec![
+                  Suite {
+                    name: "unknown",
+                    state: "fail",
+                    passed: 0,
+                    failed: 1,
+                    ignored: 0,
+                    measured: 0,
+                    total: 1,
+                    tests: vec![
+                        Test {
+                            name: "compile failed",
+                            status: "fail",
+                            error: Some("binary operation `==` cannot be applied to type `std::result::Result<nvpair::NvData, std::io::Error>`
+   --> libzfs/src/lib.rs:134:9
+    |
+134 |         assert_eq!(state, Ok(nvpair::NvData::Uint64(sys::pool_state::POOL_STATE_EXPORTED as u64)));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: an implementation of `std::cmp::PartialEq` might be missing for `std::result::Result<nvpair::NvData, std::io::Error>`
+    = note: this error originates in a macro outside of the current crate
+
+error: aborting due to previous error
+
+error: Could not compile `libzfs`.
+
+To learn more, run the command again with --verbose.
+")
+                        },
+                    ]
+                }
                       ],
         );
     }
